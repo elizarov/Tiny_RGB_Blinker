@@ -1,0 +1,20 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Atmel Studio Solution File, Format Version 11.00
+Project("{E66E83B9-2572-4076-B26E-6BE79FF3018A}") = "Tiny_RGB_Blinker", "Tiny_RGB_Blinker.cppproj", "{A5751EB6-9079-4567-8838-1C844CA2B56A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|AVR = Debug|AVR
+		Release|AVR = Release|AVR
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A5751EB6-9079-4567-8838-1C844CA2B56A}.Debug|AVR.ActiveCfg = Debug|AVR
+		{A5751EB6-9079-4567-8838-1C844CA2B56A}.Debug|AVR.Build.0 = Debug|AVR
+		{A5751EB6-9079-4567-8838-1C844CA2B56A}.Release|AVR.ActiveCfg = Release|AVR
+		{A5751EB6-9079-4567-8838-1C844CA2B56A}.Release|AVR.Build.0 = Release|AVR
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
