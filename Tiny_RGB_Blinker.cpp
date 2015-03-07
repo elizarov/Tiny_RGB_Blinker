@@ -10,33 +10,23 @@
 
   Use a common cathode RGB LED.
   Use 3V CR2032 battery.
-
-  Configure low fuse to: 
+  Use default fuses (1MHz).
   
-   bit 7: CKDIV8 - 0
-   bit 6: CKOUT  - 1
-   bit 5: SUT1   - 1 \ slow startup (+64ms)
-   bit 4: SUT0   - 0 /
-   bit 3: CKSEL3 - 0 \
-   bit 2: CKSEL2 - 1 | internal 128KHz 
-   bit 1: CKSEL1 - 0 | 
-   bit 0: CKSEL0 - 0 /
-   ------------------
-                0x64
-
+  Connect common cathode to LED0.
+  The anode colors at LED1, LED2, LED3 does not really matter in code, but the actual colors are:
+    LED1 - BLUE
+    LED2 - GREEN
+    LED3 - RED
 */
 
 #ifndef __AVR_ATtiny85__
 #error "Must be compiled for AVR ATtiny85"
 #endif
 
-#define F_CPU 128000L
-
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
 #include <avr/wdt.h>
-#include <util/delay.h>
 
 const uint8_t LED0_BIT = 2;
 const uint8_t LED1_BIT = 0;
@@ -45,6 +35,12 @@ const uint8_t LED3_BIT = 4;
 
 EMPTY_INTERRUPT(WDT_vect);
 EMPTY_INTERRUPT(INT0_vect);
+
+volatile uint8_t tcnt0h; // overflow counter high
+
+ISR(TIM0_OVF_vect) {
+	tcnt0h++;
+}
 
 void wdSleepImpl(uint8_t wdtcr) {
 	WDTCR |= _BV(WDCE); // enable the WDT Change Bit
@@ -94,13 +90,24 @@ uint8_t random() {
 	return c;            //low order bits of other variables
 }
 
+// waits ~1ms using Timer0 overflow, (need to wait ~4 overflows at 1Mhz) 
+void waitTimer() {
+	tcnt0h = 0;
+	while (tcnt0h < 4) {
+		sei();
+		sleep_cpu(); // idle sleep (configured in animateOne) until overflow interrupt happens
+		cli();
+	}
+}
+
+// 500ms action
 inline void animateOne() {
 	uint8_t p1 = 0;
 	uint8_t p2 = 0;
 	uint8_t p3 = 0;
 	switch (random() & 3) {
 		case 0:
-			wdSleep(WDTO_1S); // skip 1 second
+			wdSleep(WDTO_500MS); 
 			return; // nothing else in this cycle
 		case 1:
 			p1 = 0xff;
@@ -125,17 +132,30 @@ inline void animateOne() {
 	}
 	// power on timers
 	PRR &= ~(_BV(PRTIM1) | _BV(PRTIM0));
-	// turn on timers
-	TCCR0A = _BV(COM0A1) | _BV(COM0B1) | _BV(WGM01) | _BV(WGM01); // PWM 0A, PWM 0B, clear on match, set on top
-	TCCR0B = _BV(CS00); // run, no prescaler
-	GTCCR = _BV(PWM1B) | _BV(COM1B1); // PWM 1B, clear on match, set on top
-	TCCR1 = _BV(CS10); // run, no prescaler
+	// turn on and configure timers
+	TCCR0A = _BV(WGM01) | _BV(WGM00); // clear on match, set on top
+	TCCR0B = _BV(CS00); // run, no prescaler; @1MHz clock, PWM Freq ~= 4 KHz
+	GTCCR = _BV(COM1B1); // clear on match, set on top
+	TCCR1 = _BV(CS10); // run, no prescaler; @1MHz clock, PWM Freq ~= 4 KHz
+	// configure PWM for non-zero outputs
+	if (p1 != 0)
+		TCCR0A |= _BV(COM0A1); // PWM on OCR0A
+	if (p2 != 0)
+		TCCR0A |= _BV(COM0B1); // PWM on OCR0B
+	if (p3 != 0)	
+		GTCCR |= _BV(PWM1B); // PWM on OCR1B
+	// reset timers
+	TCNT0 = 0;
+	TCNT1 = 0;
+	TIMSK |= _BV(TOIE0); // enable timer0 overflow interrupt
+	TIFR |= _BV(TOV0); // reset timer0 overflow flag
+	set_sleep_mode(SLEEP_MODE_IDLE); // idle sleep with timers running
 	// do the actual animation
 	uint16_t s1 = 0;
 	uint16_t s2 = 0;
 	uint16_t s3 = 0;
 	uint8_t i = 0;
-	// ramp up
+	// ramp up 256 x 1ms
 	do {
 		s1 += p1;
 		s2 += p2;
@@ -143,9 +163,9 @@ inline void animateOne() {
 		OCR0A = s1 >> 8;
 		OCR0B = s2 >> 8;
 		OCR1B = s3 >> 8;	
-		_delay_us(1);
+		waitTimer();
 	} while (++i != 0);
-	// ramp down
+	// ramp down 256 x 1ms 
 	do {
 		s1 -= p1;
 		s2 -= p2;
@@ -153,8 +173,11 @@ inline void animateOne() {
 		OCR0A = s1 >> 8;
 		OCR0B = s2 >> 8;
 		OCR1B = s3 >> 8;
-		_delay_us(1);
+		waitTimer();
 	} while (++i != 0);
+	// done animation
+	set_sleep_mode(SLEEP_MODE_PWR_DOWN); // back to power down sleep
+	TIMSK &= ~_BV(TOIE0); // disable timer0 overflow interrupt
 	// turn off timers
 	TCCR0A = 0;
 	TCCR0B = 0;
@@ -164,8 +187,9 @@ inline void animateOne() {
 	PRR |= _BV(PRTIM1) | _BV(PRTIM0);
 }
 
+// 2 min = 240 x 0.5s
 inline void animateLoop() {
-	for (uint8_t i = 0; i < 60; i++) {
+	for (uint8_t i = 0; i < 240; i++) {
 		animateOne();
 		if (night())
 			return;
